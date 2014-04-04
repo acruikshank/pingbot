@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Limit Switch</title>
+    <meta charset="utf-8">
+    <style>
+      body {
+        margin: 0px;
+        background-color: #999999;
+        overflow: hidden;
+      }
+
+      #buttons {
+        position: absolute;
+        top:5px;
+        left:5px;
+      }
+    </style>
+    <script src="FileSaver.js"></script>
+    <script src="three.min.js"></script>
+    <script src="csg.js"></script>
+    <script src="orbit_controls.js"></script>
+    <script src="ThreeCSG.js"></script>
+    <script src="cad.js"></script>
+  </head>
+  <body>
+    <div id="buttons"></div>
+    <script>
+
+// All dimensions in millimeters
+var PREPARE_FOR_PRINTING = true;
+var CYLINDER_QUALITY = PREPARE_FOR_PRINTING ? 50 : 20;
+var PART_TOLERANCE = .1;
+
+var WALL_THICKNESS = 1.5;
+var SWITCH = { width: 6.2, depth: 6.2, height: 4.0, 
+              button:{height: 2.0, radius: 1.7}, 
+                 leg:{length:4.1, width:.75, zOffset:1.5, inset:.25, depth:1.0} }
+var PULLEY = { outerRadius:5, innerRadius:4, length:5.8, holeRadius: 2.6 }
+var PADDLE = { width: 4, depth: 50, outerWidth: 12, height: 2, stop:5, axel:3.2 - 2*PART_TOLERANCE, hole:1.2, holeDepth:12,
+               displayAngle: 1*Math.PI/32 }
+var BASE = {  width:SWITCH.depth + 2*WALL_THICKNESS, 
+              height:7.0,
+              stopDepth:5.0,
+              attachment:{depth:4.0, clearance: 5, height:2, overhang: 9, screwRadius:4.5, screwHeight: 3.5},
+              chamber:{depth: 2*PULLEY.outerRadius + 2.0, axelRadius:2.0},
+              screw:{depth: 18, radius:1.8},
+              socket:{width:SWITCH.depth + 2*PART_TOLERANCE, depth:SWITCH.width + 2*PART_TOLERANCE, height:2,
+                lead:{width:SWITCH.leg.depth + PART_TOLERANCE, depth:SWITCH.leg.width + SWITCH.leg.inset + 2*PART_TOLERANCE}},
+              fastener:{depth:2.5, height:2.5, width:4.0, zOffset:-1, yOffset:3},
+              hinge:{depth:8, height:4.6, inner:PADDLE.axel+2*PART_TOLERANCE, outer:6.0, yOffset:3.6, forwardStop:.2} };
+
+a3d.cad.init();
+addGeometry();
+a3d.cad.animate();
+
+function addGeometry() {
+  if (!PREPARE_FOR_PRINTING) addMockSwitch();
+  addRightBase();
+  addLeftBase();
+  addPulley();
+  addPaddle();
+
+}
+
+function addMockSwitch() {
+  var switchCSG = CSG.cube({
+    center: [0,0,SWITCH.height/2],
+    radius: [SWITCH.width/2, SWITCH.depth/2, SWITCH.height / 2]
+  }).union(CSG.cylinder({
+    start: [0,0, SWITCH.height/2],
+    end: [0,0, SWITCH.height+SWITCH.button.height],
+    radius: SWITCH.button.radius,
+    slices: CYLINDER_QUALITY
+  }))
+
+  for (var x=1; x>=-1; x-=2) for (var y=1; y>=-1; y-=2)
+    switchCSG = switchCSG.union(CSG.cube({
+      center: [x*((SWITCH.width - SWITCH.leg.width)/2 - SWITCH.leg.inset), y*(SWITCH.depth + SWITCH.leg.length)/2, 
+               SWITCH.leg.zOffset - .1],
+      radius: [SWITCH.leg.width/2, SWITCH.leg.length/2, .2]
+    }));
+
+  var switchGeometry = THREE.CSG.fromCSG(switchCSG);
+  rotateGeometry(switchGeometry, 0, 0, Math.PI/2);
+  translateGeometry(switchGeometry, 0, BASE.hinge.depth + BASE.socket.depth/2, -BASE.height/2 + BASE.socket.height);
+
+  var switchMesh = new THREE.Mesh(switchGeometry, material('#333333'));
+  a3d.cad.addMesh(switchMesh, 'switch')
+}
+
+function addPaddle() {
+  var inset2 = PADDLE.depth - PADDLE.outerWidth - PADDLE.holeDepth;
+  var inset1 = inset2 - (PADDLE.outerWidth-PADDLE.width);
+  var inset4 = PADDLE.depth - PADDLE.outerWidth/2;
+  var inset3 = inset4 - PADDLE.holeDepth;
+
+  var ctx = new THREE.Path();
+  ctx.moveTo( PADDLE.width/2, -PADDLE.stop );
+  ctx.lineTo( PADDLE.width/2, inset1);
+  ctx.bezierCurveTo( PADDLE.width/2, inset2, PADDLE.outerWidth/2, inset2, PADDLE.outerWidth/2, inset3 );
+  ctx.lineTo( PADDLE.outerWidth/2, inset4)
+  ctx.quadraticCurveTo( PADDLE.outerWidth/2, PADDLE.depth, 0, PADDLE.depth);
+  ctx.quadraticCurveTo( -PADDLE.outerWidth/2, PADDLE.depth, -PADDLE.outerWidth/2, inset4);
+  ctx.lineTo( -PADDLE.outerWidth/2, inset3);
+  ctx.bezierCurveTo( -PADDLE.outerWidth/2, inset2, -PADDLE.width/2, inset2, -PADDLE.width/2, inset1 );
+  ctx.lineTo( -PADDLE.width/2, -PADDLE.stop );
+  ctx.lineTo( PADDLE.width/2, -PADDLE.stop );
+
+  var geometry = ctx.toShapes()[0].extrude({amount:PADDLE.height, bevelEnabled:false, curveSegments:CYLINDER_QUALITY});
+  translateGeometry(geometry, 0, 0, -PADDLE.height/2);
+
+  // cut into paddle base
+  var csg = THREE.CSG.toCSG(geometry)
+
+  // hole
+  .subtract(CSG.cylinder({
+    start:[0, inset4, 100],
+    end:[0, inset4, -100],
+    radius: PADDLE.hole,
+    slices: CYLINDER_QUALITY
+  }))
+  .subtract(CSG.cylinder({
+    start:[0, inset4 - PADDLE.holeDepth, 100],
+    end:[0, inset4 - PADDLE.holeDepth, -100],
+    radius: PADDLE.hole,
+    slices: CYLINDER_QUALITY
+  }))
+  .subtract(CSG.cube({
+    center:[0,inset4 - PADDLE.holeDepth/2, 0],
+    radius:[PADDLE.hole, PADDLE.holeDepth/2, 100]
+  }))
+
+  // axel
+  .union(CSG.cylinder({
+    start:[-BASE.width/2, 0, 0],
+    end:[BASE.width/2, 0, 0],
+    radius: PADDLE.axel,
+    slices: CYLINDER_QUALITY
+  }))
+
+  // remove bottom axel bulge
+  .subtract(CSG.cube({
+    center:[0,0,-PADDLE.height],
+    radius:[100,100,PADDLE.height/2]
+  }))
+
+  geometry = THREE.CSG.fromCSG(csg);
+
+
+  if ( ! PREPARE_FOR_PRINTING ) {
+    rotateGeometry( geometry, PADDLE.displayAngle, 0, 0)
+    translateGeometry(geometry, 0, 0, BASE.hinge.yOffset + PADDLE.height/2);
+  }
+
+  var mesh = new THREE.Mesh(geometry, material('#ffff66'));
+  a3d.cad.addMesh(mesh, 'paddle')
+
+}
+
+function addLeftBase() {
+  var depth = BASE.attachment.depth/2 + BASE.chamber.depth + BASE.screw.depth + BASE.socket.depth + BASE.hinge.depth;
+
+  var left = commonBase()
+
+  // union in attachment piece to connect through tolerances
+  .union(CSG.cube({
+    center: [0, depth, -(BASE.height/2 + BASE.attachment.clearance + BASE.attachment.height)/2],
+    radius: [BASE.width/2, BASE.attachment.depth/2, (BASE.height/2 + BASE.attachment.clearance + BASE.attachment.height)/2]
+  }))
+
+  // cut base in half
+  .subtract(CSG.cube({
+    center: [BASE.width/2 - PART_TOLERANCE, 0, 0],
+    radius: [BASE.width/2, 50, 50]
+  }))
+
+  // finish rear attachment
+  .union(CSG.cube({
+    center: [0, depth, -(BASE.height + BASE.attachment.clearance + BASE.attachment.height)/2 - PART_TOLERANCE],
+    radius: [BASE.width/2, BASE.attachment.depth/2, (BASE.attachment.clearance + BASE.attachment.height)/2 - PART_TOLERANCE]
+  }))
+
+  .union(CSG.cube({
+    center: [0, depth + (BASE.attachment.overhang+BASE.attachment.depth)/2, 
+              -BASE.attachment.clearance-(BASE.height + BASE.attachment.height)/2],
+    radius: [BASE.width/2, BASE.attachment.overhang/2, (BASE.attachment.height)/2]
+  }))
+
+  .subtract( csgScrewHole(depth + BASE.attachment.depth/2 + BASE.attachment.overhang/2,
+                          -BASE.height/2 - BASE.attachment.clearance + PART_TOLERANCE) )
+
+  // top fastener
+  .union(CSG.cube({
+    center:[0,BASE.attachment.depth/2 + BASE.chamber.depth + BASE.screw.depth + BASE.socket.depth + BASE.hinge.depth,0],
+    radius:[(BASE.fastener.width)/2, (BASE.fastener.depth)/2, 
+            (BASE.fastener.height)/2 - 2*PART_TOLERANCE]
+  }))
+
+  // bottom fastener
+  .union(CSG.cube({
+    center:[0,BASE.fastener.yOffset,BASE.fastener.zOffset],
+    radius:[(BASE.fastener.width)/2, (BASE.fastener.depth)/2, 
+            (BASE.fastener.height)/2 - 2*PART_TOLERANCE]
+  }))
+
+  var geometry = THREE.CSG.fromCSG(left);
+
+  if (PREPARE_FOR_PRINTING) {
+    rotateGeometry(geometry, 0, -Math.PI/2, 0)
+    rotateGeometry(geometry, 0, 0, Math.PI);
+    translateGeometry(geometry, -16, 15, 4);
+  }
+
+  var mesh = new THREE.Mesh(geometry, material('#ff9999'));
+  a3d.cad.addMesh(mesh, 'left')
+}
+
+function addRightBase() {
+  var right = commonBase()
+
+  // union in front attachment piece to connect through tolerances
+  .union(CSG.cube({
+    center: [0, -BASE.stopDepth + BASE.attachment.depth/2, -(BASE.height/2 + BASE.attachment.clearance + BASE.attachment.height)/2],
+    radius: [BASE.width/2, BASE.attachment.depth/2, (BASE.height/2 + BASE.attachment.clearance + BASE.attachment.height)/2]
+  }))
+
+  // cut base in half
+  .subtract(CSG.cube({
+    center: [-BASE.width/2 + PART_TOLERANCE, 0, 0],
+    radius: [BASE.width/2, 50, 50]
+  }))
+
+  // finish front attachment
+  .union(CSG.cube({
+    center: [0, -BASE.stopDepth + BASE.attachment.depth/2, -(BASE.height + BASE.attachment.clearance + BASE.attachment.height)/2 - PART_TOLERANCE],
+    radius: [BASE.width/2, BASE.attachment.depth/2, (BASE.attachment.clearance + BASE.attachment.height)/2 - PART_TOLERANCE]
+  }))
+
+  .union(CSG.cube({
+    center: [0, -BASE.stopDepth + BASE.attachment.depth/2 - (BASE.attachment.overhang+BASE.attachment.depth)/2, 
+              -BASE.attachment.clearance-(BASE.height + BASE.attachment.height)/2],
+    radius: [BASE.width/2, BASE.attachment.overhang/2, (BASE.attachment.height)/2]
+  }))
+
+  .subtract( CSG.cube({
+    center:[-(BASE.width-BASE.attachment.clearance)/2, 0, -(BASE.height + BASE.attachment.clearance)/2],
+    radius:[BASE.width/2, 100, BASE.attachment.clearance/2]
+  }))
+
+  .subtract( csgScrewHole(-BASE.stopDepth - BASE.attachment.overhang/2,
+                          -BASE.height/2 - BASE.attachment.clearance + PART_TOLERANCE) )
+
+  // top fastener
+  .subtract(CSG.cube({
+    center:[0,BASE.attachment.depth/2 + BASE.chamber.depth + BASE.screw.depth + BASE.socket.depth + BASE.hinge.depth,0],
+    radius:[(BASE.fastener.width)/2+2*PART_TOLERANCE, (BASE.fastener.depth)/2+2*PART_TOLERANCE, 
+            (BASE.fastener.height)/2+2*PART_TOLERANCE]
+  }))
+
+  // bottom fastener
+  .subtract(CSG.cube({
+    center:[0, BASE.fastener.yOffset, BASE.fastener.zOffset],
+    radius:[(BASE.fastener.width)/2+2*PART_TOLERANCE, (BASE.fastener.depth)/2+2*PART_TOLERANCE, 
+            (BASE.fastener.height)/2+2*PART_TOLERANCE]
+  }))
+
+  var geometry = THREE.CSG.fromCSG(right);
+
+  if (PREPARE_FOR_PRINTING) {
+    rotateGeometry(geometry, 0, Math.PI/2, 0)
+    rotateGeometry(geometry, 0, 0, Math.PI);
+    translateGeometry(geometry, 16, 15, 4);
+  }
+
+  var mesh = new THREE.Mesh(geometry, material('#9999ff'));
+  a3d.cad.addMesh(mesh, 'right')
+}
+
+function commonBase() {
+  var depth = BASE.attachment.depth + BASE.chamber.depth + BASE.screw.depth + BASE.socket.depth + BASE.hinge.depth;
+  var leadHoleOffset = {x:(BASE.socket.width - BASE.socket.lead.width)/2, y:(BASE.socket.depth - BASE.socket.lead.depth)/2};
+  var leadDepthCenter = BASE.hinge.depth + BASE.socket.depth / 2;
+
+  return CSG.cube({
+    center: [0,(depth-BASE.stopDepth)/2,0],
+    radius: [BASE.width/2, (depth+BASE.stopDepth)/2, BASE.height/2]
+  })
+
+  // pulley socket
+  .subtract(CSG.cube({  
+    center: [0, BASE.hinge.depth + BASE.socket.depth + BASE.screw.depth + BASE.chamber.depth / 2, 0],
+    radius: [BASE.width/2 - WALL_THICKNESS, BASE.chamber.depth/2, BASE.height]
+  }))
+
+  // pulley axel
+  .union(CSG.cylinder({ 
+    start: [-BASE.width/2,BASE.chamber.depth/2 + BASE.screw.depth + BASE.socket.depth + BASE.hinge.depth, 0],
+    end: [BASE.width/2,BASE.chamber.depth/2 + BASE.screw.depth + BASE.socket.depth + BASE.hinge.depth, 0],
+    radius: BASE.chamber.axelRadius,
+    slices: CYLINDER_QUALITY
+  }))
+
+  // screw hole
+  .subtract(CSG.cylinder({
+    start: [-BASE.width/2 - PART_TOLERANCE, BASE.screw.depth/2 + BASE.socket.depth + BASE.hinge.depth, 0],
+    end: [BASE.width/2 + PART_TOLERANCE, BASE.screw.depth/2 + BASE.socket.depth + BASE.hinge.depth, 0],
+    radius: BASE.screw.radius,
+    slices: CYLINDER_QUALITY
+  }))
+
+  // switch socket
+  .subtract(CSG.cube({ 
+    center: [0, BASE.hinge.depth + BASE.socket.depth / 2, BASE.height/2],
+    radius: [BASE.socket.width/2, BASE.socket.depth/2, BASE.height-BASE.socket.height]
+  }))
+
+  // switch socket lead holes
+  .subtract(CSG.cube({  
+    center: [0, BASE.hinge.depth + BASE.socket.depth / 2, -BASE.height/2 + BASE.socket.height + SWITCH.leg.zOffset/2],
+    radius: [BASE.socket.width, BASE.socket.depth/2, SWITCH.leg.zOffset/2]
+  }))
+
+  .subtract( hingeStop() )
+
+  .union( hingeSupport() )
+}
+
+function csgScrewHole( depth, height ) {
+  var cylinder = new THREE.CylinderGeometry( BASE.attachment.screwRadius, 0, BASE.attachment.screwHeight, CYLINDER_QUALITY, 2, false);
+  rotateGeometry( cylinder, Math.PI/2, 0, 0);
+  translateGeometry( cylinder, 0, depth, height  - BASE.attachment.screwHeight/2);
+  return THREE.CSG.toCSG( cylinder );
+}
+
+function hingeSupport() {
+  return CSG.cylinder({
+    start:[-BASE.width/2, 0, BASE.hinge.height],
+    end:[BASE.width/2, 0, BASE.hinge.height],
+    radius: BASE.hinge.outer,
+    slices: CYLINDER_QUALITY
+  })
+
+  // hinge hole
+  .subtract(CSG.cylinder({
+    start:[-BASE.width, 0, BASE.hinge.height],
+    end:[BASE.width, 0, BASE.hinge.height],
+    radius: BASE.hinge.inner,
+    slices: CYLINDER_QUALITY
+  }))
+
+  // subtract center
+  .subtract(CSG.cube({
+    center:[0,0,BASE.height/2],
+    radius:[PADDLE.width/2 + 2*PART_TOLERANCE, 50, 50]
+  }))
+}
+
+function hingeStop() {
+  var stop = CSG.cube({
+    center: [0, 0, BASE.height],
+    radius: [BASE.width/2 + WALL_THICKNESS, 50, BASE.height]
+  })
+  var stopGeometry = THREE.CSG.fromCSG(stop);
+  rotateGeometry( stopGeometry, 3*Math.PI/32, 0, 0)
+  translateGeometry(stopGeometry, 0, 0, BASE.hinge.yOffset - 2*PART_TOLERANCE);
+  return  THREE.CSG.toCSG(stopGeometry)
+
+    .union(CSG.cube({
+      center:[0,0,BASE.height/2],
+      radius:[BASE.width/2 - WALL_THICKNESS, BASE.hinge.depth + 1, BASE.hinge.forwardStop]
+    }))
+    .union(CSG.cube({
+      center:[0,0,BASE.height/2],
+      radius:[BASE.width/2 + WALL_THICKNESS, BASE.hinge.inner, BASE.hinge.forwardStop]
+    }))
+}
+
+
+function addPulley() {
+  var y3 = PULLEY.length/2;
+  var y1 = (PULLEY.outerRadius-PULLEY.innerRadius)/2;
+  var y2 = (y3 + y1)/2;
+  var ctx = new THREE.Path();
+  ctx.moveTo( PULLEY.holeRadius, 0 )
+  ctx.lineTo( PULLEY.innerRadius, 0 )
+  ctx.quadraticCurveTo( PULLEY.outerRadius, 0, PULLEY.outerRadius, y1)
+  ctx.bezierCurveTo( PULLEY.outerRadius, y2, PULLEY.innerRadius, y2, PULLEY.innerRadius, y3 )
+  ctx.bezierCurveTo( PULLEY.innerRadius, PULLEY.length - y2, PULLEY.outerRadius, PULLEY.length - y2, PULLEY.outerRadius, PULLEY.length - y1 )
+  ctx.quadraticCurveTo( PULLEY.outerRadius, PULLEY.length, PULLEY.innerRadius, PULLEY.length)
+  ctx.lineTo( PULLEY.holeRadius, PULLEY.length )
+
+  var pulleyGeometry = new THREE.LatheGeometry( ctx.getPoints(CYLINDER_QUALITY, true).map(function(v) { return new THREE.Vector3(v.x,0,v.y)}),
+      CYLINDER_QUALITY )
+
+  // small circles don't seem to print right. Scale y to make it rounder
+  scaleGeometry(pulleyGeometry, 1, 1.04, 1);
+
+  if ( ! PREPARE_FOR_PRINTING ) {
+    rotateGeometry(pulleyGeometry, 0, Math.PI/2, 0);
+    translateGeometry(pulleyGeometry, -PULLEY.length/2, 
+      BASE.hinge.depth + BASE.socket.depth + BASE.screw.depth + BASE.chamber.depth/2, 0)
+  } else {
+    translateGeometry(pulleyGeometry, 0, -15, 0);
+  }
+
+  var pulleyMesh = new THREE.Mesh(pulleyGeometry, material('#6699ff'));
+  a3d.cad.addMesh(pulleyMesh, 'pulley')
+}
+
+
+function cubeFromCorners(c1, c2) {
+  return {
+    center: c1.map(function(c,i) {return c+(c2[i]-c)/2}),
+    radius: c1.map(function(c,i) {return Math.abs(c2[i]-c)/2}),
+  }
+}
+
+function material( color ) {
+  return new THREE.MeshPhongMaterial( { color: color } );
+}
+
+function translateGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeTranslation(x,y,z);
+  g.applyMatrix(matrix);
+}
+function rotateGeometry( g, x, y, z ) {
+  var matrix;
+  if (x)
+    matrix = new THREE.Matrix4().makeRotationX(x);
+  if (y)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationY(y);
+  if (z)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationZ(z);
+  if (matrix)
+    g.applyMatrix(matrix);
+}
+function scaleGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeScale(x,y,z);
+  g.applyMatrix(matrix);
+}
+
+
+    </script>
+
+  </body>
+</html>

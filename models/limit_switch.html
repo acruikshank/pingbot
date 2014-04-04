@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Limit Switch</title>
+    <meta charset="utf-8">
+    <style>
+      body {
+        margin: 0px;
+        background-color: #999999;
+        overflow: hidden;
+      }
+
+      #buttons {
+        position: absolute;
+        top:5px;
+        left:5px;
+      }
+    </style>
+    <script src="FileSaver.js"></script>
+    <script src="three.min.js"></script>
+    <script src="csg.js"></script>
+    <script src="orbit_controls.js"></script>
+    <script src="ThreeCSG.js"></script>
+    <script src="cad.js"></script>
+  </head>
+  <body>
+    <div id="buttons"></div>
+    <script>
+
+// All dimensions in millimeters
+var CYLINDER_QUALITY = 50;
+var PREPARE_FOR_PRINTING = false;
+var PART_TOLERANCE = .1;
+
+var WALL_THICKNESS = 1;
+var SOCKET = { radius: 2.5 };
+var STRING = { radius: 1.5 };
+var WIRE = { radius: 1 };
+var SPRING = { width:30, height:5, outerHingeRadius:1.4, hingeRadius:1, thickness:.5,
+               flatThickness:WALL_THICKNESS, flatWidth:3.5, depth: 8, cutDepth: 2}
+var PULLEY = { outerRadius:5, innerRadius:4, length: SPRING.depth - .4 }
+var PLUNGER = {buttonRadius:5, buttonHeight:2, shaftLength:8 ,shaftRadius:SOCKET.radius, stopRadius:SOCKET.radius+1, stopHeight:1 }
+var AXEL_HEIGHT = 4;
+var BASE = { height: 2*(AXEL_HEIGHT + PULLEY.innerRadius), depth:SPRING.depth + 2*WALL_THICKNESS + 1.4, 
+             length: 3*WALL_THICKNESS+2*SPRING.height + 2 + 2*PULLEY.outerRadius }
+var PIN =  { outerRadius: 3, innerRadius:2, length: BASE.depth + .4, baseHeight:1, slotRadius:.6, slotDepth:3}
+
+a3d.cad.init();
+addGeometry();
+a3d.cad.animate();
+
+function addGeometry() {
+  addBase();
+  addPlunger();
+  addSpring();
+  addPin();
+  addPulley()
+}
+
+// ALL:
+// Spring:
+// Plunger:
+// Base:
+// Pin:
+// Pulley:
+
+function addPulley() {
+  var y3 = PULLEY.length/2;
+  var y1 = PULLEY.outerRadius-PULLEY.innerRadius;
+  var y2 = (y3 + y1)/2;
+  var ctx = new THREE.Path();
+  ctx.moveTo( PIN.innerRadius + .8, 0 )
+  ctx.lineTo( PULLEY.innerRadius, 0 )
+  ctx.quadraticCurveTo( PULLEY.outerRadius, 0, PULLEY.outerRadius, y1)
+  ctx.bezierCurveTo( PULLEY.outerRadius, y2, PULLEY.innerRadius, y2, PULLEY.innerRadius, y3 )
+  ctx.bezierCurveTo( PULLEY.innerRadius, PULLEY.length - y2, PULLEY.outerRadius, PULLEY.length - y2, PULLEY.outerRadius, PULLEY.length - y1 )
+  ctx.quadraticCurveTo( PULLEY.outerRadius, PULLEY.length, PULLEY.innerRadius, PULLEY.length)
+  ctx.lineTo( PIN.innerRadius + .8, PULLEY.length )
+
+  var pulleyGeometry = new THREE.LatheGeometry( ctx.getPoints(CYLINDER_QUALITY, true).map(function(v) { return new THREE.Vector3(v.x,0,v.y)}),
+      CYLINDER_QUALITY )
+
+  // small circles don't seem to print right. Scale y to make it rounder
+  scaleGeometry(pulleyGeometry, 1, 1.04, 1);  
+
+  var pulleyMesh = new THREE.Mesh(pulleyGeometry, material('#6699ff'));
+  a3d.cad.addMesh(pulleyMesh, 'pulley')
+}
+
+function addBase() {
+  var plungerYAxis = BASE.height/2;
+  var pulleyShaftX = (BASE.length + 2*WALL_THICKNESS + 2*SPRING.height)/2;
+
+  var base = CSG.cube({
+    center: [BASE.length/2, BASE.height/2, 0],
+    radius: [BASE.length/2, BASE.height/2, BASE.depth/2]
+  }).subtract(CSG.cube({  // spring chamber
+    center: [SPRING.height + WALL_THICKNESS, BASE.height/2, 0],
+    radius: [SPRING.height, BASE.height + 1, BASE.depth/2 - WALL_THICKNESS]
+  })).subtract(CSG.cube({ // pulley chamber
+    center: [2*SPRING.height + 2*WALL_THICKNESS + 1 + PULLEY.outerRadius, BASE.height/2, 0],
+    radius: [1 + PULLEY.outerRadius, BASE.height + 1, BASE.depth/2 - WALL_THICKNESS]
+  })).subtract(CSG.cylinder({ // plunger hole
+    start: [ -1, plungerYAxis,0],
+    end: [WALL_THICKNESS + 1, plungerYAxis, 0],
+    radius: PLUNGER.stopRadius + .5,
+    slices: CYLINDER_QUALITY 
+  })).subtract(CSG.cylinder({ // spring socket and rear access hole
+    start: [ WALL_THICKNESS + 2*SPRING.height -1, plungerYAxis,0],
+    end: [ BASE.length + 1, plungerYAxis, 0],
+    radius: SOCKET.radius + .25,
+    slices: CYLINDER_QUALITY 
+  })).subtract(CSG.cylinder({  // pully shaft hole
+    start: [ pulleyShaftX, AXEL_HEIGHT, BASE.depth],
+    end:   [ pulleyShaftX, AXEL_HEIGHT, -BASE.depth],
+    radius: PIN.innerRadius,
+    slices: CYLINDER_QUALITY 
+  })).subtract(CSG.cylinder({  // conductor hole
+    start: [ WALL_THICKNESS + WIRE.radius, BASE.height/2 + PLUNGER.stopRadius, BASE.depth],
+    end:   [ WALL_THICKNESS + WIRE.radius, BASE.height/2 + PLUNGER.stopRadius, -BASE.depth],
+    radius: WIRE.radius,
+    slices: CYLINDER_QUALITY 
+  }))
+
+  var baseGeometry = THREE.CSG.fromCSG(base);
+  rotateGeometry( baseGeometry, Math.PI/2, 0, 0 )
+
+  var baseMesh = new THREE.Mesh(baseGeometry, material('#ff9966'));
+  a3d.cad.addMesh(baseMesh, 'base')
+}
+
+function addPlunger() {
+  var plunger = CSG.cylinder({
+    start: [0,0,0],
+    end: [0,0,PLUNGER.buttonHeight],
+    radius: PLUNGER.buttonRadius,
+    slices: CYLINDER_QUALITY 
+  }).union(CSG.cylinder({
+    start: [0,0,0],
+    end: [0,0,PLUNGER.buttonHeight + PLUNGER.shaftLength + 2*WALL_THICKNESS],
+    radius: PLUNGER.shaftRadius,
+    slices: CYLINDER_QUALITY
+  })).union(CSG.cylinder({
+    start: [0,0,PLUNGER.buttonHeight + PLUNGER.shaftLength - PLUNGER.stopHeight],
+    end: [0,0,PLUNGER.buttonHeight + PLUNGER.shaftLength],
+    radius: PLUNGER.stopRadius,
+    slices: CYLINDER_QUALITY
+  })).subtract(CSG.cylinder({
+    start: [0,0,-1],
+    end: [0,0,PLUNGER.buttonHeight + PLUNGER.shaftLength + 2*WALL_THICKNESS + 1],
+    radius: STRING.radius,
+    slices: CYLINDER_QUALITY
+  }))
+
+  var plungerMesh = new THREE.Mesh(THREE.CSG.fromCSG(plunger), material('#ffff66'));
+  a3d.cad.addMesh(plungerMesh, 'plunger')
+
+}
+
+function addPin() {
+  var headM = PIN.baseHeight / PIN.slotRadius / 1.5;
+  var headY0 = PIN.length + 2*PIN.baseHeight - headM * PIN.innerRadius;
+
+  var headCone = new THREE.CylinderGeometry(PIN.innerRadius, headY0/headM, PIN.length + 2*PIN.baseHeight, CYLINDER_QUALITY );
+  rotateGeometry( headCone, Math.PI/2, 0, 0)
+  translateGeometry( headCone, 0, 0, PIN.length/2 + PIN.baseHeight)
+
+  var stop = CSG.cube({  // end stop
+    center: [0,0, 2*PIN.baseHeight + PIN.length],
+    radius: [PIN.outerRadius, PIN.innerRadius, PIN.baseHeight]
+  }).intersect(THREE.CSG.toCSG(headCone))
+
+  var pin = CSG.cylinder({
+    start: [0, 0, 0],
+    end: [0, 0, PIN.baseHeight],
+    radius: PIN.outerRadius,
+    slices: CYLINDER_QUALITY
+  }).union(CSG.cylinder({ // base
+    start: [0, 0, 0],
+    end: [0, 0, PIN.baseHeight + PIN.length + PIN.slotDepth/2],
+    radius: PIN.innerRadius,
+    slices: CYLINDER_QUALITY
+  })).union(stop).subtract(CSG.cube({  // end stop slot
+    center: [0,0, PIN.length],
+    radius: [PIN.slotRadius, PIN.outerRadius, PIN.slotDepth]
+  }));
+
+  var pinMesh = new THREE.Mesh(THREE.CSG.fromCSG(pin), material('#ff6666'));
+  a3d.cad.addMesh(pinMesh, 'pin')  
+}
+
+function addSpring() {
+  var springGeometry = THREE.CSG.toCSG(springBase())
+
+    // cut socket for plunger
+    .subtract(CSG.cylinder({
+      start:[0, -SPRING.height - 1, SPRING.depth/2],
+      end: [0, -SPRING.height + SPRING.flatThickness + 1, SPRING.depth/2],
+      radius: SOCKET.radius + .25,
+      slices: CYLINDER_QUALITY
+    }))
+
+    // add socket for base
+    .union(CSG.cylinder({
+      start:[0, SPRING.height - SPRING.flatThickness, SPRING.depth/2],
+      end: [0, SPRING.height + 2* WALL_THICKNESS, SPRING.depth/2],
+      radius: SOCKET.radius,
+      slices: CYLINDER_QUALITY
+    }))
+
+    // cut string hole
+    .subtract(CSG.cylinder({
+      start:[0, SPRING.height - SPRING.flatThickness - 1, SPRING.depth/2],
+      end: [0, SPRING.height + SPRING.flatThickness + 1, SPRING.depth/2],
+      radius: STRING.radius,
+      slices: CYLINDER_QUALITY
+    }))
+
+    // add cylinders to end for strength
+    .union(CSG.cylinder({
+      start:[SPRING.width, 0, 0],
+      end: [SPRING.width, 0, SPRING.depth],
+      radius: SPRING.hingeRadius,
+      slices: CYLINDER_QUALITY
+    }))
+    .union(CSG.cylinder({
+      start:[-SPRING.width, 0, 0],
+      end: [-SPRING.width, 0, SPRING.depth],
+      radius: SPRING.hingeRadius,
+      slices: CYLINDER_QUALITY
+    }))
+    .intersect(THREE.CSG.toCSG(springIntersectionPrism() ))
+
+    // subtract contact holes
+    .subtract(CSG.cylinder({
+      start:[-SPRING.flatWidth-WIRE.radius-1, -SPRING.height - 1, SPRING.depth/2],
+      end: [-SPRING.flatWidth-WIRE.radius-1, 0, SPRING.depth/2],
+      radius: WIRE.radius,
+      slices: CYLINDER_QUALITY
+    })).subtract(CSG.cylinder({
+      start:[SPRING.flatWidth+WIRE.radius+1, -SPRING.height - 1, SPRING.depth/2],
+      end: [SPRING.flatWidth+WIRE.radius+1, 0, SPRING.depth/2],
+      radius: WIRE.radius,
+      slices: CYLINDER_QUALITY
+    }))
+
+  var springMesh = new THREE.Mesh(THREE.CSG.fromCSG( springGeometry ), material('#6666ff'));
+  a3d.cad.addMesh(springMesh, 'spring')  
+}
+
+function springBase() {
+  var ctx = new THREE.Path();
+  ctx.moveTo(-SPRING.flatWidth,-SPRING.height);
+  ctx.lineTo(-SPRING.width, -SPRING.thickness);
+  ctx.quadraticCurveTo(-SPRING.width-SPRING.thickness, 0, -SPRING.width, SPRING.thickness);
+  ctx.lineTo(-SPRING.flatWidth, SPRING.height);
+  ctx.lineTo( SPRING.flatWidth, SPRING.height);
+  ctx.lineTo( SPRING.width, SPRING.thickness );
+  ctx.quadraticCurveTo( SPRING.width+SPRING.thickness, 0, SPRING.width, -SPRING.thickness );
+  ctx.lineTo( SPRING.flatWidth, -SPRING.height );
+
+  // compute inner arm line
+  var m = -SPRING.height / (SPRING.width - SPRING.flatWidth);
+  var y0 = -SPRING.thickness - m * SPRING.width;
+
+  var y1 = SPRING.height - SPRING.flatThickness;
+  var x1 = (y1 - y0) / m;
+  var x2 = 2 * x1 - SPRING.flatWidth;
+  var y2 = m * x2 + y0;
+
+  ctx.moveTo( SPRING.flatWidth, -y1 );
+  ctx.quadraticCurveTo( x1, -y1, x2, -y2 );
+  ctx.lineTo( SPRING.width, 0 );
+  ctx.lineTo( x2, y2 )
+  ctx.quadraticCurveTo( x1, y1, SPRING.flatWidth, y1 );
+  ctx.lineTo( -SPRING.flatWidth, y1 );
+  ctx.quadraticCurveTo( -x1, y1, -x2, y2 );
+  ctx.lineTo( -SPRING.width, 0 )
+  ctx.lineTo( -x2, -y2 )
+  ctx.quadraticCurveTo( -x1, -y1, -SPRING.flatWidth, -y1 );
+
+  return ctx.toShapes()[0].extrude({amount:SPRING.depth, bevelEnabled:false, curveSegments:CYLINDER_QUALITY});
+}
+
+function springIntersectionPrism() {  
+  // calculate y-intercept and slope such that we'll cut starting at the flatWidth, and the cut will hit the edge at cutDepth
+  var m = (SPRING.cutDepth - SPRING.depth) / (SPRING.width - SPRING.flatWidth);
+  var y0 = SPRING.cutDepth - m * SPRING.width;
+
+  var ctx = new THREE.Path();
+  ctx.moveTo( 0, y0 );
+  ctx.lineTo( 2*SPRING.width, 2*m*SPRING.width + y0 )
+  ctx.lineTo( -2*SPRING.width, 2*m*SPRING.width + y0 )
+  ctx.lineTo( 0, y0 );
+
+  var cutGeometry = ctx.toShapes()[0].extrude({amount:4*SPRING.height, bevelEnabled:false, curveSegments:CYLINDER_QUALITY});
+  rotateGeometry( cutGeometry, Math.PI/2, 0, 0 );
+  translateGeometry( cutGeometry, 0, 2*SPRING.height, 0 );
+  return cutGeometry;
+}
+
+function roundedRect(x1,y1,x2,y2,radii, open) {
+  var ctx = new THREE.Path()
+  radii = radii || {};
+  open = open || {};
+  if (radii.all) radii.tl=radii.tr=radii.bl=radii.br=radii.all;
+  if (radii.t) radii.tl=radii.tr=radii.t;
+  if (radii.l) radii.tl=radii.bl=radii.l;
+  if (radii.b) radii.bl=radii.br=radii.b;
+  if (radii.r) radii.tr=radii.br=radii.r;
+
+  ctx.moveTo(x2-(radii.br||0),y2);
+  ctx[open.b?'moveTo':'lineTo'](x1+(radii.bl||0),y2);
+  if (radii.bl) ctx.quadraticCurveTo(x1,y2,x1,y2+radii.bl);
+  ctx[open.l?'moveTo':'lineTo'](x1,y1-(radii.tl||0));
+  if (radii.tl) ctx.quadraticCurveTo(x1,y1,x1+radii.tl,y1);
+
+  ctx[open.t?'moveTo':'lineTo'](x2 - (radii.tr || 0), y1);
+  if (radii.tr) ctx.quadraticCurveTo(x2,y1,x2,y1-radii.tr);
+  ctx[open.r?'moveTo':'lineTo'](x2,y2+(radii.br||0));
+  if (radii.br) ctx.quadraticCurveTo(x2,y2,x2-radii.br,y2);
+
+  return ctx;
+}
+
+function cubeFromCorners(c1, c2) {
+  return {
+    center: c1.map(function(c,i) {return c+(c2[i]-c)/2}),
+    radius: c1.map(function(c,i) {return Math.abs(c2[i]-c)/2}),
+  }
+}
+
+function material( color ) {
+  return new THREE.MeshPhongMaterial( { color: color } );
+}
+
+function translateGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeTranslation(x,y,z);
+  g.applyMatrix(matrix);
+}
+function rotateGeometry( g, x, y, z ) {
+  var matrix;
+  if (x)
+    matrix = new THREE.Matrix4().makeRotationX(x);
+  if (y)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationY(y);
+  if (z)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationZ(z);
+  if (matrix)
+    g.applyMatrix(matrix);
+}
+function scaleGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeScale(x,y,z);
+  g.applyMatrix(matrix);
+}
+
+
+    </script>
+
+  </body>
+</html>

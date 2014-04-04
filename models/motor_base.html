@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Motor Base</title>
+    <meta charset="utf-8">
+    <style>
+      body {
+        margin: 0px;
+        background-color: #999999;
+        overflow: hidden;
+      }
+
+      #buttons {
+        position: absolute;
+        top:5px;
+        left:5px;
+      }
+    </style>
+    <script src="FileSaver.js"></script>
+    <script src="three.min.js"></script>
+    <script src="csg.js"></script>
+    <script src="orbit_controls.js"></script>
+    <script src="ThreeCSG.js"></script>
+    <script src="cad.js"></script>
+  </head>
+  <body>
+    <div id="buttons"></div>
+    <script>
+
+// All dimensions in millimeters
+var CYLINDER_QUALITY = 50;
+var PREPARE_FOR_PRINTING = false;
+
+var PART_TOLERANCE = .1;
+
+var BASE = {width: 50, depth: 40, height: 5};
+var MOTOR_FASTNER_HEIGHT = 25;
+var MOTOR1 = {radius: 14, length: 37, offset:0}
+
+a3d.cad.init();
+addGeometry();
+a3d.cad.animate();
+
+function addGeometry() {
+  var motorBase = base()
+    .union( motor1() )
+
+  var motorBaseGeometry = THREE.CSG.fromCSG(motorBase);
+  var motorBaseMesh = new THREE.Mesh(motorBaseGeometry, material('#6666ff'));
+  a3d.cad.addMesh(motorBaseMesh, 'base')
+}
+
+function base() {
+  return CSG.cube({
+    center: [0,0, BASE.height/2],
+    radius: [BASE.width/2, BASE.depth/2, BASE.height/2]
+  })
+
+}
+
+function motor1() {
+  var fastenerTop = BASE.height + MOTOR_FASTNER_HEIGHT;
+
+  // Fastener is a rectangular solid with a cylindrical groove subtracted to fit the motor
+  return CSG.cube({
+    center: [0, MOTOR1.offset, fastenerTop/2],
+    radius: [MOTOR1.length/2, BASE.depth/2, fastenerTop/2]
+
+  // Subtract motor shape from fastener
+  }).subtract(CSG.cylinder({  
+    start: [ MOTOR1.offset - MOTOR1.length/2 - PART_TOLERANCE, 0, fastenerTop ],
+    end: [ MOTOR1.offset + MOTOR1.length/2 + PART_TOLERANCE, 0, fastenerTop ],
+    radius: MOTOR1.radius,
+    slices: CYLINDER_QUALITY    
+  }))
+}
+
+
+function roundedRect(x1,y1,x2,y2,radii, open) {
+  var ctx = new THREE.Path()
+  radii = radii || {};
+  open = open || {};
+  if (radii.all) radii.tl=radii.tr=radii.bl=radii.br=radii.all;
+  if (radii.t) radii.tl=radii.tr=radii.t;
+  if (radii.l) radii.tl=radii.bl=radii.l;
+  if (radii.b) radii.bl=radii.br=radii.b;
+  if (radii.r) radii.tr=radii.br=radii.r;
+
+  ctx.moveTo(x2-(radii.br||0),y2);
+  ctx[open.b?'moveTo':'lineTo'](x1+(radii.bl||0),y2);
+  if (radii.bl) ctx.quadraticCurveTo(x1,y2,x1,y2+radii.bl);
+  ctx[open.l?'moveTo':'lineTo'](x1,y1-(radii.tl||0));
+  if (radii.tl) ctx.quadraticCurveTo(x1,y1,x1+radii.tl,y1);
+
+  ctx[open.t?'moveTo':'lineTo'](x2 - (radii.tr || 0), y1);
+  if (radii.tr) ctx.quadraticCurveTo(x2,y1,x2,y1-radii.tr);
+  ctx[open.r?'moveTo':'lineTo'](x2,y2+(radii.br||0));
+  if (radii.br) ctx.quadraticCurveTo(x2,y2,x2-radii.br,y2);
+
+  return ctx;
+}
+
+function cubeFromCorners(c1, c2) {
+  return {
+    center: c1.map(function(c,i) {return c+(c2[i]-c)/2}),
+    radius: c1.map(function(c,i) {return Math.abs(c2[i]-c)/2}),
+  }
+}
+
+function material( color ) {
+  return new THREE.MeshPhongMaterial( { color: color } );
+}
+
+function translateGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeTranslation(x,y,z);
+  g.applyMatrix(matrix);
+}
+function rotateGeometry( g, x, y, z ) {
+  var matrix;
+  if (x)
+    matrix = new THREE.Matrix4().makeRotationX(x);
+  if (y)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationY(y);
+  if (z)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationZ(z);
+  if (matrix)
+    g.applyMatrix(matrix);
+}
+function scaleGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeScale(x,y,z);
+  g.applyMatrix(matrix);
+}
+
+
+    </script>
+
+  </body>
+</html>
