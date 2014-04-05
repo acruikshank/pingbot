@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>String Stop</title>
+    <meta charset="utf-8">
+    <style>
+      body {
+        margin: 0px;
+        background-color: #999999;
+        overflow: hidden;
+      }
+
+      #buttons {
+        position: absolute;
+        top:5px;
+        left:5px;
+      }
+    </style>
+    <script src="FileSaver.js"></script>
+    <script src="three.min.js"></script>
+    <script src="csg.js"></script>
+    <script src="orbit_controls.js"></script>
+    <script src="ThreeCSG.js"></script>
+    <script src="cad.js"></script>
+  </head>
+  <body>
+    <div id="buttons"></div>
+    <script>
+
+// All dimensions in millimeters
+var PREPARE_FOR_PRINTING = true;
+var CYLINDER_QUALITY = PREPARE_FOR_PRINTING ? 50 : 20;
+var RADIUS = 10;
+var INNER_RADIUS = 4.4;
+var TIE_WIDTH = 3.6;
+var TIE_LENGTH = 6.4;
+var HEIGHT = 2
+var NOTCH_WIDTH = 1.6;
+var NOTCH_LENGTH = 2.4;
+var NUB = 1.2;
+
+a3d.cad.init();
+addGeometry();
+a3d.cad.animate();
+
+function addGeometry() {
+  addStop();
+
+}
+
+function addStop() {
+  var stop = CSG.cylinder({
+    start: [0,0, HEIGHT/2],
+    end: [0,0, -HEIGHT/2],
+    radius: RADIUS,
+    slices: CYLINDER_QUALITY
+  }).subtract(CSG.cylinder({
+    start: [0,0, HEIGHT],
+    end: [0,0, -HEIGHT],
+    radius: INNER_RADIUS,
+    slices: CYLINDER_QUALITY
+  })).union(CSG.cube({
+    center: [0,INNER_RADIUS-TIE_LENGTH/2,0],
+    radius: [TIE_WIDTH/2, TIE_LENGTH/2, HEIGHT/2]
+  })).union(CSG.cube({
+    center: [0,INNER_RADIUS-TIE_LENGTH + NUB/2,0],
+    radius: [TIE_WIDTH/2 + NUB, NUB/2, HEIGHT/2]
+  })).union(CSG.cube({
+    center: [0,NOTCH_WIDTH/2 + INNER_RADIUS/2,0],
+    radius: [5, (INNER_RADIUS-NOTCH_WIDTH/2)/2, HEIGHT/2]
+  })).subtract(CSG.cube({
+    center: [0, (INNER_RADIUS-RADIUS)/2-INNER_RADIUS, 0],
+    radius: [NOTCH_WIDTH/2, (RADIUS-INNER_RADIUS)/2 + .3, HEIGHT]
+  })).subtract(CSG.cube({
+    center: [RADIUS-NOTCH_LENGTH/2, 0, 0],
+    radius: [NOTCH_LENGTH/2 + .1, NOTCH_WIDTH/2, HEIGHT]
+  })).subtract(CSG.cube({
+    center: [-RADIUS+NOTCH_LENGTH/2, 0, 0],
+    radius: [NOTCH_LENGTH/2 + .1, NOTCH_WIDTH/2, HEIGHT]
+  }))
+
+  var mesh = new THREE.Mesh(THREE.CSG.fromCSG(stop), material('#cccccc'));
+  a3d.cad.addMesh(mesh, 'stop')
+}
+
+
+
+function cubeFromCorners(c1, c2) {
+  return {
+    center: c1.map(function(c,i) {return c+(c2[i]-c)/2}),
+    radius: c1.map(function(c,i) {return Math.abs(c2[i]-c)/2}),
+  }
+}
+
+function material( color ) {
+  return new THREE.MeshPhongMaterial( { color: color } );
+}
+
+function translateGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeTranslation(x,y,z);
+  g.applyMatrix(matrix);
+}
+function rotateGeometry( g, x, y, z ) {
+  var matrix;
+  if (x)
+    matrix = new THREE.Matrix4().makeRotationX(x);
+  if (y)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationY(y);
+  if (z)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationZ(z);
+  if (matrix)
+    g.applyMatrix(matrix);
+}
+function scaleGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeScale(x,y,z);
+  g.applyMatrix(matrix);
+}
+
+
+    </script>
+
+  </body>
+</html>
