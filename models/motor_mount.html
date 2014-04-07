@@ -29,15 +29,20 @@
 
 // All dimensions in millimeters
 var PREPARE_FOR_PRINTING = true;
-var CYLINDER_QUALITY = PREPARE_FOR_PRINTING ? 50 : 25;
+var CYLINDER_QUALITY = PREPARE_FOR_PRINTING ? 50 : 20;
 
-var MOUNT_WIDTH = 32;
-var MOUNT_DEPTH = 32;
-var MOUNT_HEIGHT = 4;
+var MOUNT_HEIGHT = 23;
 var MOTOR_RADIUS = 14.2;
 var LOCK_WIDTH = 2.5;
 var LOCK_DEPTH = 2.5;
 var LOCK_HEIGHT = 2.5;
+
+var BASE_LINE = 90;
+var MOTOR_MARGIN = 5;
+var CUTOUT_WIDTH = 12;
+
+var VENT_HEIGHT = 7;
+var VENT_WIDTH = 14;
 
 a3d.cad.init();
 addGeometry();
@@ -48,40 +53,138 @@ function addGeometry() {
 }
 
 function addMount( ) {
-  var mount = CSG.cube({
-    center: [0,0,MOUNT_HEIGHT/2],
-    radius: [ MOUNT_WIDTH/2, MOUNT_DEPTH/2, MOUNT_HEIGHT/2]
-  }).subtract(CSG.cylinder({
-    start: [0, 0, -1],
-    end: [0, 0, MOUNT_HEIGHT + 1],
-    radius: MOTOR_RADIUS,
-    slices: CYLINDER_QUALITY
-  })).union(CSG.cube({
-    center:[MOTOR_RADIUS - (LOCK_DEPTH - LOCK_WIDTH/2)/2, 0, LOCK_HEIGHT/2],
-    radius:[(LOCK_DEPTH - LOCK_WIDTH/2)/2, LOCK_WIDTH/2, LOCK_HEIGHT/2]
-  })).union(CSG.cylinder({
-    start:[MOTOR_RADIUS - LOCK_DEPTH + LOCK_WIDTH/2, 0, 0],
-    end:[MOTOR_RADIUS - LOCK_DEPTH + LOCK_WIDTH/2, 0, LOCK_HEIGHT],
-    radius: LOCK_WIDTH/2,
-    slices: CYLINDER_QUALITY
-  })).union(CSG.cube({
-    center:[-MOTOR_RADIUS + (LOCK_DEPTH - LOCK_WIDTH/2)/2, 0, LOCK_HEIGHT/2],
-    radius:[(LOCK_DEPTH - LOCK_WIDTH/2)/2, LOCK_WIDTH/2, LOCK_HEIGHT/2]
-  })).union(CSG.cylinder({
-    start:[-MOTOR_RADIUS + LOCK_DEPTH - LOCK_WIDTH/2, 0, 0],
-    end:[-MOTOR_RADIUS + LOCK_DEPTH - LOCK_WIDTH/2, 0, LOCK_HEIGHT],
-    radius: LOCK_WIDTH/2,
-    slices: CYLINDER_QUALITY
-  }))
+  // The motors are centerered at the vertices of an equilateral triangle.
+  // The outer boundary is an equilateral triangle with smaller equilateral triangles cut of the tips
+  // so that each small line passes MOTOR_MARGIN from the closest motor, and each long line passes
+  // the same distance from its two closest motors.
+
+  var invCos30 = 1 / Math.cos(Math.PI/6);
+
+  // Distance from center to long line
+  var d1 = Math.tan(Math.PI/6) * BASE_LINE / 2 + MOTOR_RADIUS + MOTOR_MARGIN;
+
+  // Distance from center to short line
+  var d2 = invCos30 * BASE_LINE / 2 + MOTOR_RADIUS + MOTOR_MARGIN;
+
+  // Outer triangle side
+  var side = 2 * d1 / Math.tan(Math.PI/6);
+
+  // Short line length (length(0 to outer tri vertex) - d2) / cos(30)
+  var shortSide = (2*d1 - d2) * invCos30;
+
+  var ctx = new THREE.Path();
+  ctx.moveTo( -side/2 + shortSide, -d1 );
+  ctx.lineTo( -side/2 + shortSide/2, -d1 + shortSide/invCos30 );
+  ctx.lineTo( -shortSide/2, d2 );
+  ctx.lineTo( shortSide/2, d2 );
+  ctx.lineTo( side/2 - shortSide/2, -d1 + shortSide/invCos30 );
+  ctx.lineTo( side/2 - shortSide, -d1)
+
+  var innerTriangleD1 = d1 - (MOTOR_RADIUS + MOTOR_MARGIN);
+  var innerTriangleD2 = d2 - 2*(MOTOR_RADIUS + MOTOR_MARGIN);
+  var innerTriangleSide = 2 * innerTriangleD1 / Math.tan(Math.PI/6);
+  var innerTriangleShortSide = (2*innerTriangleD1 - innerTriangleD2) * invCos30;
+
+  ctx.moveTo( -innerTriangleSide/2 + innerTriangleShortSide, -innerTriangleD1 );
+  ctx.lineTo( innerTriangleSide/2 - innerTriangleShortSide, -innerTriangleD1);
+  ctx.lineTo( innerTriangleSide/2 - innerTriangleShortSide/2, -innerTriangleD1 + innerTriangleShortSide/invCos30 );
+  ctx.lineTo( innerTriangleShortSide/2, innerTriangleD2 );
+  ctx.lineTo( -innerTriangleShortSide/2, innerTriangleD2 );
+  ctx.lineTo( -innerTriangleSide/2 + innerTriangleShortSide/2, -innerTriangleD1 + innerTriangleShortSide/invCos30 );
+
+  var geometry = ctx.toShapes()[0].extrude({amount:MOUNT_HEIGHT, bevelEnabled:false, curveSegments:CYLINDER_QUALITY});
+
+  var geometryCSG = THREE.CSG.toCSG( geometry );
+
+  var motorFitting = THREE.CSG.fromCSG(motorFittingInverted());
+  translateGeometry( motorFitting, 0, invCos30 * BASE_LINE/2, 0 );
+
+  var cutoutGeometry = THREE.CSG.fromCSG( cutout(d1) );
+  var ventGeometry = vent();
+
+  geometryCSG = geometryCSG
+    .subtract(THREE.CSG.toCSG(motorFitting))
+    .subtract(THREE.CSG.toCSG(cutoutGeometry))
+    .subtract(THREE.CSG.toCSG(ventGeometry));
+
+  rotateGeometry( motorFitting, 0, 0, 2*Math.PI/3 );
+  rotateGeometry( cutoutGeometry, 0, 0, 2*Math.PI/3 );
+  rotateGeometry( ventGeometry, 0, 0, 2*Math.PI/3 );
+  geometryCSG = geometryCSG
+    .subtract(THREE.CSG.toCSG(motorFitting))
+    .subtract(THREE.CSG.toCSG(cutoutGeometry))
+    .subtract(THREE.CSG.toCSG(ventGeometry));
 
 
+  rotateGeometry( motorFitting, 0, 0, 2*Math.PI/3 );
+  rotateGeometry( cutoutGeometry, 0, 0, 2*Math.PI/3 );
+  rotateGeometry( ventGeometry, 0, 0, 2*Math.PI/3 );
+  geometryCSG = geometryCSG
+    .subtract(THREE.CSG.toCSG(motorFitting))
+    .subtract(THREE.CSG.toCSG(cutoutGeometry))
+    .subtract(THREE.CSG.toCSG(ventGeometry));
 
-  var geometry = THREE.CSG.fromCSG( mount );
+  geometry = THREE.CSG.fromCSG(geometryCSG);
+
 
   var mesh = new THREE.Mesh(geometry, material('#cccccc'));
   a3d.cad.addMesh(mesh, "motor mount")
 }
 
+function cutout( d1 ) {
+  return CSG.cube({
+    center: [0, -d1 + (MOTOR_RADIUS + MOTOR_MARGIN)/2, 0],
+    radius: [BASE_LINE/2 - MOTOR_RADIUS - MOTOR_MARGIN - CUTOUT_WIDTH/2, CUTOUT_WIDTH/2, MOUNT_HEIGHT + 2]
+  }).union(CSG.cylinder({
+    start:[-BASE_LINE/2 + MOTOR_RADIUS + MOTOR_MARGIN + CUTOUT_WIDTH/2, -d1 + (MOTOR_RADIUS + MOTOR_MARGIN)/2, -2],
+    end:[-BASE_LINE/2 + MOTOR_RADIUS + MOTOR_MARGIN + CUTOUT_WIDTH/2, -d1 + (MOTOR_RADIUS + MOTOR_MARGIN)/2, MOUNT_HEIGHT +2 ],
+    radius: CUTOUT_WIDTH/2,
+    slices: CYLINDER_QUALITY
+  })).union(CSG.cylinder({
+    start:[BASE_LINE/2 - MOTOR_RADIUS - MOTOR_MARGIN - CUTOUT_WIDTH/2, -d1 + (MOTOR_RADIUS + MOTOR_MARGIN)/2, -2],
+    end:[BASE_LINE/2 - MOTOR_RADIUS - MOTOR_MARGIN - CUTOUT_WIDTH/2, -d1 + (MOTOR_RADIUS + MOTOR_MARGIN)/2, MOUNT_HEIGHT +2 ],
+    radius: CUTOUT_WIDTH/2,
+    slices: CYLINDER_QUALITY
+  }))
+}
+
+function motorFittingInverted() {
+  return CSG.cylinder({
+    start: [0, 0, -1],
+    end: [0, 0, MOUNT_HEIGHT + 1],
+    radius: MOTOR_RADIUS,
+    slices: CYLINDER_QUALITY
+  }).subtract(CSG.cube({
+    center:[MOTOR_RADIUS - (LOCK_DEPTH - LOCK_WIDTH/2)/2, 0, LOCK_HEIGHT/2],
+    radius:[(LOCK_DEPTH - LOCK_WIDTH/2)/2, LOCK_WIDTH/2, LOCK_HEIGHT/2]
+  })).subtract(CSG.cylinder({
+    start:[MOTOR_RADIUS - LOCK_DEPTH + LOCK_WIDTH/2, 0, 0],
+    end:[MOTOR_RADIUS - LOCK_DEPTH + LOCK_WIDTH/2, 0, LOCK_HEIGHT],
+    radius: LOCK_WIDTH/2,
+    slices: CYLINDER_QUALITY
+  })).subtract(CSG.cube({
+    center:[-MOTOR_RADIUS + (LOCK_DEPTH - LOCK_WIDTH/2)/2, 0, LOCK_HEIGHT/2],
+    radius:[(LOCK_DEPTH - LOCK_WIDTH/2)/2, LOCK_WIDTH/2, LOCK_HEIGHT/2]
+  })).subtract(CSG.cylinder({
+    start:[-MOTOR_RADIUS + LOCK_DEPTH - LOCK_WIDTH/2, 0, 0],
+    end:[-MOTOR_RADIUS + LOCK_DEPTH - LOCK_WIDTH/2, 0, LOCK_HEIGHT],
+    radius: LOCK_WIDTH/2,
+    slices: CYLINDER_QUALITY
+  }))
+}
+
+function vent() {
+  var ctx = new THREE.Path();
+  ctx.moveTo( -VENT_WIDTH/2, VENT_HEIGHT );
+  ctx.lineTo( VENT_WIDTH/2, VENT_HEIGHT );
+  ctx.lineTo( 0, VENT_HEIGHT + VENT_WIDTH );
+
+  var geometry = ctx.toShapes()[0].extrude({amount:2*BASE_LINE, bevelEnabled:false, curveSegments:CYLINDER_QUALITY});
+  translateGeometry( geometry, 0, 0, -2*BASE_LINE );
+  rotateGeometry( geometry, Math.PI/2, 0, 0 );
+
+  return geometry;
+}
 
 
 function cubeFromCorners(c1, c2) {
