@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Spindle</title>
+    <meta charset="utf-8">
+    <style>
+      body {
+        margin: 0px;
+        background-color: #999999;
+        overflow: hidden;
+      }
+
+      #buttons {
+        position: absolute;
+        top:5px;
+        left:5px;
+      }
+    </style>
+    <script src="FileSaver.js"></script>
+    <script src="three.min.js"></script>
+    <script src="csg.js"></script>
+    <script src="orbit_controls.js"></script>
+    <script src="ThreeCSG.js"></script>
+    <script src="cad.js"></script>
+  </head>
+  <body>
+    <div id="buttons"></div>
+    <script>
+
+// All dimensions in millimeters
+var PREPARE_FOR_PRINTING = true;
+var CYLINDER_QUALITY = PREPARE_FOR_PRINTING ? 50 : 25;
+var HOLE_RADIUS = 1.5;
+var TIGHT_HOLE_RADIUS = 1.35;
+var OUTER_RADIUS = 12.5;
+var INNER_RADIUS = 3.2
+var HEIGHT = 5.5;
+var CONTROL_FACTOR_1 = 1/5;
+var CONTROL_FACTOR_2 = 1/8;
+var CONNECTION = 1;
+var EDGE=.4;
+
+a3d.cad.init();
+addGeometry();
+a3d.cad.animate();
+
+function addGeometry() {
+  addSpindle1();
+  addSpindle2();
+}
+
+function addSpindle1( ) {
+  var geometry = spindleGeometry(HOLE_RADIUS);
+
+  var mesh = new THREE.Mesh(geometry, material('#cccccc'));
+  a3d.cad.addMesh(mesh, "spindle1")
+}
+
+function addSpindle2( ) {
+  var geometry = spindleGeometry(TIGHT_HOLE_RADIUS);
+
+  if ( PREPARE_FOR_PRINTING ) {
+    translateGeometry( geometry, 3*OUTER_RADIUS, 0, 0 );
+  } else {
+    translateGeometry( geometry, 0, 0, -HEIGHT-CONNECTION/2 );
+    rotateGeometry( geometry, Math.PI, 0 );
+    translateGeometry( geometry, 0, 0, HEIGHT+CONNECTION/2 );
+  }
+
+  var mesh = new THREE.Mesh(geometry, material('#ffff99'));
+  a3d.cad.addMesh(mesh, "spindle2")
+}
+
+function spindleGeometry(holeRadius) {
+   var ctx = new THREE.Path();
+  ctx.moveTo( INNER_RADIUS, -EDGE )
+  ctx.lineTo( OUTER_RADIUS, -EDGE )
+  ctx.lineTo( OUTER_RADIUS, 0 )
+  ctx.bezierCurveTo( INNER_RADIUS + CONTROL_FACTOR_1*(OUTER_RADIUS-INNER_RADIUS), CONTROL_FACTOR_1 * HEIGHT,
+                     INNER_RADIUS, HEIGHT - HEIGHT*CONTROL_FACTOR_2, INNER_RADIUS, HEIGHT );
+  ctx.lineTo( INNER_RADIUS, HEIGHT + CONNECTION)
+  ctx.lineTo( holeRadius, HEIGHT + CONNECTION );
+  ctx.lineTo( holeRadius, -EDGE );
+
+  var latheGeometry = new THREE.LatheGeometry( ctx.getPoints(CYLINDER_QUALITY, true).map(function(v) { 
+    return new THREE.Vector3(v.x,0,v.y)}), CYLINDER_QUALITY )
+
+  var csgGeometry = THREE.CSG.toCSG(latheGeometry).subtract(CSG.cube({
+    center: [0, INNER_RADIUS, HEIGHT + CONNECTION/2],
+    radius: [OUTER_RADIUS, INNER_RADIUS, CONNECTION/2]
+  }));
+
+  return THREE.CSG.fromCSG(csgGeometry);
+}
+
+
+
+function cubeFromCorners(c1, c2) {
+  return {
+    center: c1.map(function(c,i) {return c+(c2[i]-c)/2}),
+    radius: c1.map(function(c,i) {return Math.abs(c2[i]-c)/2}),
+  }
+}
+
+function material( color ) {
+  return new THREE.MeshPhongMaterial( { color: color } );
+}
+
+function translateGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeTranslation(x,y,z);
+  g.applyMatrix(matrix);
+}
+function rotateGeometry( g, x, y, z ) {
+  var matrix;
+  if (x)
+    matrix = new THREE.Matrix4().makeRotationX(x);
+  if (y)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationY(y);
+  if (z)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationZ(z);
+  if (matrix)
+    g.applyMatrix(matrix);
+}
+function scaleGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeScale(x,y,z);
+  g.applyMatrix(matrix);
+}
+
+
+    </script>
+
+  </body>
+</html>

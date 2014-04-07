@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Engine Mount</title>
+    <meta charset="utf-8">
+    <style>
+      body {
+        margin: 0px;
+        background-color: #999999;
+        overflow: hidden;
+      }
+
+      #buttons {
+        position: absolute;
+        top:5px;
+        left:5px;
+      }
+    </style>
+    <script src="FileSaver.js"></script>
+    <script src="three.min.js"></script>
+    <script src="csg.js"></script>
+    <script src="orbit_controls.js"></script>
+    <script src="ThreeCSG.js"></script>
+    <script src="cad.js"></script>
+  </head>
+  <body>
+    <div id="buttons"></div>
+    <script>
+
+// All dimensions in millimeters
+var PREPARE_FOR_PRINTING = true;
+var CYLINDER_QUALITY = PREPARE_FOR_PRINTING ? 50 : 25;
+
+var MOUNT_WIDTH = 32;
+var MOUNT_DEPTH = 32;
+var MOUNT_HEIGHT = 4;
+var MOTOR_RADIUS = 14.2;
+var LOCK_WIDTH = 2.5;
+var LOCK_DEPTH = 2.5;
+var LOCK_HEIGHT = 2.5;
+
+a3d.cad.init();
+addGeometry();
+a3d.cad.animate();
+
+function addGeometry() {
+  addMount();
+}
+
+function addMount( ) {
+  var mount = CSG.cube({
+    center: [0,0,MOUNT_HEIGHT/2],
+    radius: [ MOUNT_WIDTH/2, MOUNT_DEPTH/2, MOUNT_HEIGHT/2]
+  }).subtract(CSG.cylinder({
+    start: [0, 0, -1],
+    end: [0, 0, MOUNT_HEIGHT + 1],
+    radius: MOTOR_RADIUS,
+    slices: CYLINDER_QUALITY
+  })).union(CSG.cube({
+    center:[MOTOR_RADIUS - (LOCK_DEPTH - LOCK_WIDTH/2)/2, 0, LOCK_HEIGHT/2],
+    radius:[(LOCK_DEPTH - LOCK_WIDTH/2)/2, LOCK_WIDTH/2, LOCK_HEIGHT/2]
+  })).union(CSG.cylinder({
+    start:[MOTOR_RADIUS - LOCK_DEPTH + LOCK_WIDTH/2, 0, 0],
+    end:[MOTOR_RADIUS - LOCK_DEPTH + LOCK_WIDTH/2, 0, LOCK_HEIGHT],
+    radius: LOCK_WIDTH/2,
+    slices: CYLINDER_QUALITY
+  })).union(CSG.cube({
+    center:[-MOTOR_RADIUS + (LOCK_DEPTH - LOCK_WIDTH/2)/2, 0, LOCK_HEIGHT/2],
+    radius:[(LOCK_DEPTH - LOCK_WIDTH/2)/2, LOCK_WIDTH/2, LOCK_HEIGHT/2]
+  })).union(CSG.cylinder({
+    start:[-MOTOR_RADIUS + LOCK_DEPTH - LOCK_WIDTH/2, 0, 0],
+    end:[-MOTOR_RADIUS + LOCK_DEPTH - LOCK_WIDTH/2, 0, LOCK_HEIGHT],
+    radius: LOCK_WIDTH/2,
+    slices: CYLINDER_QUALITY
+  }))
+
+
+
+  var geometry = THREE.CSG.fromCSG( mount );
+
+  var mesh = new THREE.Mesh(geometry, material('#cccccc'));
+  a3d.cad.addMesh(mesh, "motor mount")
+}
+
+
+
+function cubeFromCorners(c1, c2) {
+  return {
+    center: c1.map(function(c,i) {return c+(c2[i]-c)/2}),
+    radius: c1.map(function(c,i) {return Math.abs(c2[i]-c)/2}),
+  }
+}
+
+function material( color ) {
+  return new THREE.MeshPhongMaterial( { color: color } );
+}
+
+function translateGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeTranslation(x,y,z);
+  g.applyMatrix(matrix);
+}
+function rotateGeometry( g, x, y, z ) {
+  var matrix;
+  if (x)
+    matrix = new THREE.Matrix4().makeRotationX(x);
+  if (y)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationY(y);
+  if (z)
+    matrix = (matrix||new THREE.Matrix4()).makeRotationZ(z);
+  if (matrix)
+    g.applyMatrix(matrix);
+}
+function scaleGeometry( g, x, y, z ) {
+  matrix = new THREE.Matrix4().makeScale(x,y,z);
+  g.applyMatrix(matrix);
+}
+
+
+    </script>
+
+  </body>
+</html>
